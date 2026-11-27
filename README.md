@@ -1,6 +1,6 @@
 # bobbin
 
-The org's one portable concurrency mechanism: **actors** and **channels**, with messages that
+The org's one portable concurrency mechanism: **actors** and **channels**, and an **owner loop**, with messages that
 are plain data and always **copied**, on every Lisp.
 
 On modus, threads share no state -- a thread's objects live in its own GC region, and the
@@ -64,6 +64,49 @@ a condition, a stream, a channel -- signals in the sender before anything is que
 EQUAL, never EQ.  (modus's own channels and actors carry DEFSTRUCT instances; bobbin refuses them
 there too, so code that runs on modus runs on SBCL.)
 
+## The owner loop (`bobbin.owner`, `src/owner.lisp`)
+
+For state many threads used to share (a node's peers, a ledger): **one owner thread** holds it
+and runs everything that touches it, as it **pumps**; other threads reach it by copied messages.
+What used to be a thread becomes a **lane** (work run one item at a time) or a **timer**, run on
+the owner when it pumps, and the owner pumps whenever it waits -- so waits overlap as they did
+with threads.  It is **one loop per process**: libraries that each need an owner share it, and
+other event sources (cl-consensus's net thread) are drained by the same pump, so a lane waiting
+in `pause-for` delivers network input and a network read runs lanes and timers.
+
+```lisp
+(bobbin.owner:start-owner)                      ; this (the main) thread is the owner
+(defun total (a b) (+ a b))
+;; from any other thread:
+(bobbin.owner:owner-call 'total '(40 2))        ; => 42, run on the owner when it pumps
+;; on the owner:
+(let ((lane (bobbin.owner:make-lane :name "fetch")))
+  (bobbin.owner:lane-push lane (lambda () (bobbin.owner:pause-for 1) (print :done))))
+(bobbin.owner:every-seconds 5 'tick)
+(bobbin.owner:pause-for 10)                     ; runs the lane and the timer meanwhile
+```
+
+| | |
+|---|---|
+| `(start-owner)` | make the calling thread the owner; the first call makes the owner's channels (on modus: call it on the main thread) |
+| `(owner-p)`, `(owner-thread)` | |
+| `(pump &optional timeout)` | on the owner: handle messages, drain sources, run due timers and one item of every runnable lane; if nothing happened wait up to `timeout` s.  T if anything ran.  Off the owner: wait (and, on SBCL, drain `:any-thread` sources) |
+| `(pause-for s)`, `(wait-until pred &key timeout step)`, `(pump-until pred &key timeout slice)` | wait while pumping; use instead of `sleep` / `condition-wait` on the owner |
+| `(owner-call fname args &key timeout)` | from another thread: run `(apply fname args)` on the owner, return its value (copied); errors there are `owner-call-error` here.  On the owner a plain call |
+| `(owner-post fname args &key timeout)` | the same without waiting for the answer |
+| `(make-lane &key name run ready close-when-empty)`, `lane-push`, `lane-push-front`, `lane-close`, `lane-idle-p`, `lane-busy-p`, `lane-depth`, ... | a queue of work run one item at a time |
+| `(every-seconds interval fn &key name first)`, `(after-seconds s fn &key name)`, `cancel-timer` | timers; an error in one is reported, not raised |
+| `(with-owner-lock (key) ...)`, `owner-lock`, `owner-lock-held-p`, `owner-busy` | a lock between tasks on the owner: re-entrant for its task, `owner-busy` (retried later) for another -- the holder is suspended below it on the same stack, so waiting is impossible |
+| `(run-work fname args &key timeout)`, `work-local`, `work-quiet-p`, `*work-threads*` | blocking work (an RPC) on a pool of work threads, the owner pumping until the answer |
+| `(add-owner-source name drain &key any-thread wake)`, `remove-owner-source`, `(owner-wake &optional name)` | another event source drained by every pump; its producer calls `owner-wake` after queuing input.  With `wake`, an idle owner waits **in** that source and messages to the owner wake it |
+| `*task*`, `task-name`, `pump-depth` | |
+
+Waits nest (a pump runs a lane item that waits in its turn), bounded at 48 deep.  Every function
+another thread asks for is a **symbol**, and arguments and values are plain data, as everywhere
+in bobbin.  Messages to the owner travel in an 8 MB inbox, answers in 16 reply channels of 8 MB
+(`*owner-call-slots*`, `*owner-message-bytes*`, read by the first `start-owner`; on modus those
+are memory the owner's heap keeps).
+
 ## Backends, and how one is chosen
 
 Chosen when bobbin is **loaded**, from what the Lisp has -- `fboundp` of `MODUS:ACTORS-START` /
@@ -108,9 +151,11 @@ modus --script test/run.lisp                                  # :modus-actors on
 BOBBIN_BACKEND=threads modus --script test/run.lisp           # :threads on modus
 ```
 
-51 checks: channels (round trip, copies, timeouts, full, refusals, a bounded channel carrying more
+88 checks: channels (round trip, copies, timeouts, full, refusals, a bounded channel carrying more
 than its capacity), and actors (ordering, copies under mutation, timeouts, selective receive,
 refusals in main and in actors, closures from main / symbols from actors, link and monitor on a
 normal end and on an error, `:noproc`, more links over time than an actor has watcher entries, as many actors as the backend allows and their slots reused,
-ping-pong throughput main<->actor and actor<->actor).  `BOBBIN_TEST_MANY` / `BOBBIN_TEST_PINGS`
+ping-pong throughput main<->actor and actor<->actor), and the owner loop (pump, pauses, OWNER-CALL
+/ OWNER-POST from other threads, lanes, timers, owner locks against lanes and calls, RUN-WORK,
+a source drained by the same pump and woken by its producer, a source the owner waits in).  `BOBBIN_TEST_MANY` / `BOBBIN_TEST_PINGS`
 change the counts.

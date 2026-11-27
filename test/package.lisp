@@ -24,5 +24,6 @@
           (lisp-implementation-type) (lisp-implementation-version) (backend) (max-actors))
   (run-channels)
   (run-actors)
+  (funcall (find-symbol "RUN-OWNER" "BOBBIN.OWNER-TEST"))
   (format t "~&~d/~d~%" (- *checks* *fails*) *checks*)
   (zerop *fails*))

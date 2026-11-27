@@ -1,7 +1,7 @@
 ;;;; bobbin.asd -- the org's one portable concurrency mechanism: actors and channels.
 ;;;;
-;;;; Actors (SPAWN / SEND / RECEIVE / RECEIVE-IF / SELF / LINK / MONITOR) and copying message
-;;;; CHANNELs, on modus's own actor runtime and message channels where they exist and on native
+;;;; Actors (SPAWN / SEND / RECEIVE / RECEIVE-IF / SELF / LINK / MONITOR), copying message
+;;;; CHANNELs, and the OWNER LOOP (BOBBIN.OWNER: one thread owns some state and pumps), on modus's own actor runtime and message channels where they exist and on native
 ;;;; threads with a copying mailbox elsewhere (SBCL).  Messages are plain data, copied, never
 ;;;; shared, on every Lisp.  No dependencies beyond the SB-THREAD surface SBCL and modus share.
 
@@ -16,7 +16,8 @@
                 :components ((:file "package")
                              (:file "plain")      ; what a message may be; the copy
                              (:file "channel")    ; CHANNEL: modus channel, or a queue of copies
-                             (:file "actor"))))   ; actors on modus's runtime or on threads
+                             (:file "actor")      ; actors on modus's runtime or on threads
+                             (:file "owner"))))   ; the owner loop: pump, lanes, timers, OWNER-CALL
   :in-order-to ((test-op (test-op "bobbin/test"))))
 
 (defsystem "bobbin/test"
@@ -26,5 +27,6 @@
   :components ((:module "test" :serial t
                 :components ((:file "package")
                              (:file "channel-test")
-                             (:file "actor-test"))))
+                             (:file "actor-test")
+                             (:file "owner-test"))))
   :perform (test-op (o c) (uiop:symbol-call '#:bobbin.test '#:run)))
