@@ -205,10 +205,13 @@
     (:threads (channel-send (svref *mailboxes* slot) envelope :timeout timeout))
     (:modus-actors
      (%plain-copy envelope nil 'send)
-     ;; modus waits up to 10 s for room, then signals; that bound is the runtime's, not TIMEOUT.
-     (handler-case (progn (funcall *modus-actors-send* slot envelope) t)
-       (error (e)
-         (if (search "has not drained" (princ-to-string e)) nil (error e)))))))
+     (if (member :modus-actor-send-timeout *features*)
+         ;; the runtime waits TIMEOUT seconds for room and answers NIL after them
+         (and (funcall *modus-actors-send* slot envelope :timeout timeout) t)
+         ;; an older modus waits a fixed 10 s for room, then signals
+         (handler-case (progn (funcall *modus-actors-send* slot envelope) t)
+           (error (e)
+             (if (search "has not drained" (princ-to-string e)) nil (error e))))))))
 
 (defun %raw-receive (slot timeout)
   (ecase *backend*

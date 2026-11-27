@@ -34,6 +34,11 @@
 (defun a-quick (x) x)
 (defun a-crash (x) (error "crash ~a" x))
 (defun a-wait-then-end () (receive :timeout 10))
+(defun a-nap (reply-to)
+  "Takes :go, then receives nothing for 2 s, so its mailbox fills; then drains until :done."
+  (receive :timeout 30) (sleep 2) (send reply-to :napped)
+  (loop (when (eq (receive :timeout 30) :done) (return))))
+
 (defun a-hold (reply-to) (send reply-to (list :up (self))) (receive :timeout 30))
 
 (defun a-spawn-child (reply-to)
@@ -211,6 +216,20 @@
                     (every #'actor-alive-p bs)))
         (dolist (b bs) (monitor b) (send b :done))
         (every (lambda (b) (exit-of b 30)) bs)))
+
+    ;; a full mailbox: SEND waits TIMEOUT, then signals MAILBOX-FULL
+    (let* ((a (spawn 'a-nap me))
+           (big (make-string 40000 :initial-element #\x))
+           (sent 0) (t0 (now)))
+      (send a :go)
+      (let ((full (handler-case (loop repeat 30 do (send a big :timeout 0.2) (incf sent))
+                    (mailbox-full () t)))
+            (dt (- (now) t0)))
+        (check "send to a full mailbox signals MAILBOX-FULL after its timeout"
+               (and full (plusp sent) (< sent 30) (>= dt 0.19) (< dt 1.5)) (list sent dt)))
+      (check "...and once there is room, it goes" (and (eq (receive :timeout 10) :napped)
+                                                       (send a big :timeout 10)))
+      (send a :done))
 
     ;; ping-pong throughput
     (let* ((n (%getenv-int "BOBBIN_TEST_PINGS" 5000))

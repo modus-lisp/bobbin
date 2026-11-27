@@ -84,7 +84,7 @@ backend on a modus that has the runtime); `BOBBIN_BACKEND=actors` insists on the
 | actors at once | 4095 (bobbin's table; measured 4095 at once) | **15** (modus has 16 thread slots, main's included) -- fewer if the program runs other threads | **48** by default (`*actor-runtime-config*`, at most 60) |
 | an actor costs | an OS thread | an OS thread and one of the 15 slots | a slot, a 2 MB stack, a GC region (8 MB semispace pair by default: an actor's live data must fit) |
 | mailbox bound | `*mailbox-bytes*` (256 KB, estimated) | 256 KB ring per mailbox, all 16 made at load | 256 KB of staging per actor (modus's) |
-| `send` to a full mailbox | waits `timeout` s, then `mailbox-full` | same | modus waits 10 s, whatever `timeout` says, then `mailbox-full` |
+| `send` to a full mailbox | waits `timeout` s, then `mailbox-full` | same | same (a modus from before 2026-11-27 waits a fixed 10 s, whatever `timeout` says) |
 | a blocked `receive` | blocks its thread | blocks its thread | frees the scheduler thread |
 | start-up | nothing | 16 mailboxes made at load | the runtime starts at the first `spawn` / `receive` on the main thread (carves 48 x 8 MB regions out of region 0); `stop` ends it, once per process |
 | ping-pong, round trips/s (one run each, see `test/`) | 33-58 k | 16-21 k | 12-16 k |
