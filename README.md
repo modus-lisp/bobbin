@@ -108,9 +108,9 @@ modus --script test/run.lisp                                  # :modus-actors on
 BOBBIN_BACKEND=threads modus --script test/run.lisp           # :threads on modus
 ```
 
-50 checks: channels (round trip, copies, timeouts, full, refusals, a bounded channel carrying more
+51 checks: channels (round trip, copies, timeouts, full, refusals, a bounded channel carrying more
 than its capacity), and actors (ordering, copies under mutation, timeouts, selective receive,
 refusals in main and in actors, closures from main / symbols from actors, link and monitor on a
-normal end and on an error, `:noproc`, as many actors as the backend allows and their slots reused,
+normal end and on an error, `:noproc`, more links over time than an actor has watcher entries, as many actors as the backend allows and their slots reused,
 ping-pong throughput main<->actor and actor<->actor).  `BOBBIN_TEST_MANY` / `BOBBIN_TEST_PINGS`
 change the counts.

@@ -172,11 +172,19 @@
 
 (defun %watch-add (slot watcher)
   (let ((base (* slot +watchers+)))
-    (dotimes (i +watchers+ (error "bobbin: actor slot ~D already has ~D watchers." slot +watchers+))
-      (when (eql (svref *watch* (+ base i)) watcher) (return))
-      (when (eql (svref *watch* (+ base i)) -1)
-        (setf (svref *watch* (+ base i)) watcher)
-        (return)))))
+    (flet ((try ()
+             (dotimes (i +watchers+ nil)
+               (when (eql (svref *watch* (+ base i)) watcher) (return t))
+               (when (eql (svref *watch* (+ base i)) -1)
+                 (setf (svref *watch* (+ base i)) watcher)
+                 (return t)))))
+      (or (try)
+          ;; Full: drop watchers that have ended (a monitor that died first leaves its entry).
+          (progn (dotimes (i +watchers+)
+                   (unless (actor-alive-p (svref *watch* (+ base i)))
+                     (setf (svref *watch* (+ base i)) -1)))
+                 (try))
+          (error "bobbin: actor slot ~D already has ~D watchers." slot +watchers+)))))
 
 (defun %watch-remove (slot watcher)
   (let ((base (* slot +watchers+)))
@@ -325,6 +333,8 @@
     (sb-thread:with-mutex (*lock*)
       (when (eql (svref *gen* slot) gen)
         (setf watchers (%watch-take slot))
+        ;; A link is two entries: take ours out of the other side's list too.
+        (dolist (w watchers) (%watch-remove (%slot w) me))
         (setf (svref *state* slot) 2)))
     (dolist (w watchers)
       (ignore-errors (send w (list :exit me reason) :timeout 2)))))

@@ -184,6 +184,10 @@
       (let ((a (spawn 'a-wait-then-end)))
         (monitor a) (demonitor a) (send a :go)
         (check "after DEMONITOR no exit message comes" (null (exit-of a 0.5))))
+      (check "more links over time than one actor has watcher entries (16)"
+             (loop repeat 40
+                   always (let ((a (spawn-link 'a-quick 1)))
+                            (equal (exit-of a) (list :exit a :normal)))))
       (setf *report-errors* old))
 
     ;; many actors, and slots reused
